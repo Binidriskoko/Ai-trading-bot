@@ -1,0 +1,51 @@
+import { expect, test } from "@playwright/test";
+
+const signup = async (page, username, email, password) => {
+  await page.getByRole("button", { name: "Sign up" }).click();
+  await page.getByLabel("Username").fill(username);
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password").fill(password);
+  await page.getByRole("button", { name: "CREATE DEMO ACCOUNT" }).click();
+};
+
+test("backend persists referral rewards across logout and login", async ({ page }) => {
+  const suffix = Date.now();
+  const referrer = { username: `referrer-${suffix}`, email: `referrer-${suffix}@example.com`, password: "ReferralA1" };
+  const referred = { username: `referred-${suffix}`, email: `referred-${suffix}@example.com`, password: "ReferralB1" };
+  await page.goto("/");
+  await signup(page, referrer.username, referrer.email, referrer.password);
+  await page.getByRole("button", { name: "wallet", exact: true }).click();
+  const code = await page.locator(".referral-box strong").textContent();
+  await page.getByRole("button", { name: "Log out" }).click();
+  await page.goto(`/?ref=${code}`);
+  await signup(page, referred.username, referred.email, referred.password);
+  await page.getByRole("button", { name: "payment", exact: true }).click();
+  await page.getByLabel("Ethereum transaction hash").fill(`0x${suffix.toString(16).padStart(64, "0")}`);
+  await page.getByRole("button", { name: "SUBMIT $2 PAYMENT" }).click();
+  await page.getByRole("button", { name: "Log out" }).click();
+  await page.getByLabel("Email").fill("binidriskoko@gmail.co");
+  await page.getByLabel("Password").fill("ExistingOwner1");
+  await page.getByRole("button", { name: "LOG IN", exact: true }).click();
+  await page.getByRole("button", { name: "admin", exact: true }).click();
+  const adminData = await page.request.get("/api/admin/bootstrap");
+  const payment = (await adminData.json()).payments.find((item) => item.userEmail === referred.email);
+  await page.request.post(`/api/admin/payments/${payment.id}`, { data: { status: "APPROVED" } });
+  await page.getByRole("button", { name: "Log out" }).click();
+  await page.getByLabel("Email").fill(referred.email);
+  await page.getByLabel("Password").fill(referred.password);
+  await page.getByRole("button", { name: "LOG IN", exact: true }).click();
+  await page.getByRole("button", { name: "trading", exact: true }).click();
+  await page.getByRole("button", { name: "ACTIVATE BOT" }).click();
+  await page.getByRole("button", { name: "ledger", exact: true }).click();
+  await expect.poll(async () => page.locator(".panel tbody tr").count(), { timeout: 45_000 }).toBeGreaterThan(0);
+  await page.waitForTimeout(1000);
+  await page.getByRole("button", { name: "wallet", exact: true }).click();
+  await expect(page.getByText(/Referral earnings/)).toBeVisible();
+  await page.getByRole("button", { name: "Log out" }).click();
+  await page.getByLabel("Email").fill("binidriskoko@gmail.co");
+  await page.getByLabel("Password").fill("ExistingOwner1");
+  await page.getByRole("button", { name: "LOG IN", exact: true }).click();
+  await page.getByRole("button", { name: "admin", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Admin Dashboard" })).toBeVisible();
+  await expect(page.getByText("Referral Rewards").first()).toBeVisible();
+});
